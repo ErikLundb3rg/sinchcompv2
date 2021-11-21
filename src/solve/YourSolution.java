@@ -1,5 +1,4 @@
 package solve;
-
 import java.util.*;
 
 
@@ -59,6 +58,7 @@ class Node {
     public boolean[] canDirection = new boolean[4];
     public boolean[] collisions = new boolean[4];
     public boolean canFall = true;
+    public int[] blocking = new int[4];
     interface LambdaFunc {
         public void run(int x, int y, int dir);
     }
@@ -126,15 +126,29 @@ class Node {
         };
     }
 
-    public void markCollisions() {
+    public void markCollisionsAndFSetBlocking() {
+        for (int i = 0; i < 4; i++) {
+            blocking[i] = -1;
+        }
         for (int i = 0; i < 4; i++) {
             if (canDirection[i]) {
                 doForDirection(i, (x, y, dir) -> {
                     List<Integer> others = Constants.getOccupyers(x, y);
+                    Set<Integer> onBranch = new HashSet<>();
                     // others are marking this spot as a possible felling
                     if (others.size() > 1) {
                         collisions[dir] = true;
+
+                        for (Integer o : others) {
+                            onBranch.add(o);
+                        }
                     }
+
+                    int sm = 0;
+                    for (Integer o : onBranch) {
+                        sm += Constants.idToNode.get(o).height;
+                    }
+                    blocking[dir] = sm;
                 });
             }
         }
@@ -143,10 +157,77 @@ class Node {
     public int checkFreeFellingandFall() {
         for(int i = 0; i < collisions.length; i++) {
             if (canDirection[i] && !collisions[i]) {
+                height = 0;
                 return i;
             }
         }
         return -1;
+    }
+
+    public int getFallDir(int oX, int oY) {
+
+        if (oX == posX) {
+            if (oY < posY) {
+                return 1;
+            } else {
+                return 3;
+            }
+        } else if (oY == posY) {
+            if (oX < posX) {
+                return 2;
+            } else {
+                return 0;
+            }
+        }
+        return -1;
+    }
+
+    public int getFactorCost(int dir, int oHeight) {
+        blocking[dir] -= oHeight;
+
+        boolean dirIsMin = true;
+        for (int i = 0; i < 4; i++) {
+            if (blocking[i] < blocking[dir]) {
+                dirIsMin = false;
+            }
+        }
+        if (!dirIsMin) {
+            blocking[dir] += oHeight;
+            return -1;
+        }
+
+        int tmpINF = 100000;
+        int secondMin = tmpINF;
+        for (int i = 0; i < 4; i++) {
+            if (blocking[i] != -1 && i != dir) {
+                if (blocking[i] < secondMin) {
+                    secondMin = blocking[i];
+                }
+            }
+        }
+
+        if (secondMin != tmpINF) {
+            int gain1 = height - blocking[dir];
+            int gain2 = height- secondMin;
+            blocking[dir] += oHeight;
+            return gain1 -gain2;
+        } else {
+            blocking[dir] += oHeight;
+            return height;
+        }
+
+    }
+
+    class XYIDPair {
+        public int x;
+        public int y;
+        public int ID;
+
+        public XYIDPair(int x, int y, int ID) {
+            this.x = x;
+            this.y = y;
+            this.ID = ID;
+        }
     }
 
     public List<DirCostPair> minBlockList() {
@@ -154,7 +235,7 @@ class Node {
 
         for (int i = 0; i < 4; i++) {
             if (collisions[i]) {
-                Set<Integer> onBranch = new HashSet();
+                Set<XYIDPair> onBranch = new HashSet();
 
                 doForDirection(i, (x, y, dir) -> {
                     List<Integer> others = Constants.getOccupyers(x, y);
@@ -162,13 +243,15 @@ class Node {
                     for (Integer o : others) {
                         // don't add myself
                         if (o != id) {
-                            onBranch.add(o);
+                            onBranch.add(new XYIDPair(x, y, id));
                         }
                     }
                 });
                 int sm = 0;
-                for (Integer o : onBranch) {
-                    sm += Constants.idToNode.get(o).height;
+                for (XYIDPair o : onBranch) {
+                    Node otherNode = Constants.idToNode.get(o.ID);
+                    int dir = otherNode.getFallDir(o.x, o.y);
+                    sm += otherNode.getFactorCost(dir, height);
                 }
                 xs.add(new DirCostPair(i, sm));
             }
@@ -195,11 +278,15 @@ class Node {
                 doForDirection(dcp.dir, (x, y, dir) -> {
                     grid[x][y] = -1;
                 });
+                height = 0;
                 return dcp.dir;
             }
             canFall = true;
+
+
         }
         // can't fall anywhere
+        height = 0;
         return -1;
     }
 }
@@ -253,7 +340,7 @@ public class YourSolution implements Solver {
         }
 
         for (Node n : nodes) {
-            n.markCollisions();
+            n.markCollisionsAndFSetBlocking();
         }
 
         List<Node> collided = new ArrayList();
@@ -277,13 +364,13 @@ public class YourSolution implements Solver {
             }
         }
 
-        /*for (List<Integer> ans : res) {
+        for (List<Integer> ans : res) {
             String s = "";
             for (Integer x : ans) {
                 s += String.valueOf(x) + " ";
             }
             System.out.println(s);
-        }*/
+        }
 
         return resFromList(res);
     }
